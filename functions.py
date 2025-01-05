@@ -141,12 +141,13 @@ def normalize(image):
     return normalized
 
 ###################################################################################
-#----------------------------PLOT HEATMAP----------------------------
+#----------------------------FEATURE IMPORTANCE----------------------------
 
 def plot_importance(classifier, band_order = None,width=12.8, height=6.8):
     """
     Plots a heatmap from a dictionary, using 'Date id' as y-axis labels and no specific band order.
-
+    Plots a table of the ten most important bands.
+    Can returns the data frame created to plot the feature importance.
     Parameters:
     - classifier: ee.Classifier from which importance values will be calculated.
     - band order: a list of band names by which the importance graph will be ordered (optional)
@@ -177,21 +178,28 @@ def plot_importance(classifier, band_order = None,width=12.8, height=6.8):
         # Split the key into 'Date id' and 'Band'
         date_id, band = key.split('_')
 
-                # Convert 'YYMMDD' to 'MM/DD/YY' format
-        year = date_id[:4]
-        month = date_id[4:6]
-        day = date_id[6:]
-        date_id = f"{month}/{day}/{year}"
+        # If the 'Date id' is 'mean' or 'st dev', append it directly
+        if date_id in ['mean', 'stdDev','median','variance','p25','p75']:
+            formatted_data['Date id'].append(date_id)
+        else:
+        # Convert 'YYMMDD' to 'MM/DD/YY' format
+            year = date_id[:4]
+            month = date_id[4:6]
+            day = date_id[6:]
+            date_id = f"{month}/{day}/{year}"
+            formatted_data['Date id'].append(date_id)
 
-        formatted_data['Date id'].append(date_id)
         formatted_data['Band'].append(band)
         formatted_data['Importance'].append(value)
 
     # Create a DataFrame
     data = pd.DataFrame(formatted_data)
-
+   
     # Step 2: Pivot the table to create the heatmap-friendly format
     pivot_table = data.pivot_table(index='Date id', columns='Band', values='Importance', aggfunc='mean')[band_order]
+
+    # Sort the pivot table index alphabetically
+    pivot_table = pivot_table.sort_index()
 
     # Step 3: Plot the heatmap
     colors = ["#fefcfd", "#69858f", "#151972", "#85010e"]
@@ -211,6 +219,13 @@ def plot_importance(classifier, band_order = None,width=12.8, height=6.8):
     plt.xticks(rotation=90)
     plt.yticks(rotation=0)  # No custom rotation for dates
     plt.show()
+
+   
+    data_sorted = data.sort_values(by = 'Importance', ascending = False)
+    print ("Top 10 Most Important Bands")
+    display((data_sorted).head(10))
+    
+    return data_sorted
 
 ###################################################################################
 #----------------------------ACCURACY ASSESMENT----------------------------
@@ -253,14 +268,18 @@ def accuracy_assesment (classified_image, testing_data, class_label, order = Non
 
 ###################################################################################
 #----------------------------PLOT CONFUSION MATRIX----------------------------
-def plot_confmatrix (confusion_matrix, labels ,overall_accuracy = None):
+def plot_confmatrix (ee_confusion_matrix, labels , title = ''):
+
+    confusion_matrix = ee_confusion_matrix.getInfo()
+
     # Define the confusion matrix data as a numpy array
     data = np.array(confusion_matrix)
 
     # Create DataFrame
     cf_frame = pd.DataFrame(data, index=labels, columns=labels)
 
-    sns.heatmap(cf_frame, annot=True, cmap="rocket")
+    # sns.heatmap(cf_frame, annot=True, cmap="rocket")
+    sns.heatmap(cf_frame, annot=True, cmap=sns.cubehelix_palette(as_cmap=True,reverse=True))
 
     # Get the current axis
     ax = plt.gca()
@@ -271,11 +290,10 @@ def plot_confmatrix (confusion_matrix, labels ,overall_accuracy = None):
     # labels, title and ticks
     ax.set_xlabel('Predicted labels')
     ax.set_ylabel('True labels')
-    ax.set_title('StackedImage', pad=20)
+    ax.set_title(title, pad=20)
 
     # Display accuracies
-    #plt.figtext(0.5, 0.05, f"Overall Accuracy: {overall_accuracy:.2f}", ha='center')
-    plt.xlabel('Predicted label\n\nOverall accuracy={:0.4f}'.format(overall_accuracy))
+    # plt.xlabel('Predicted label\n\nOverall accuracy={:0.4f}'.format(overall_accuracy))
     #plt.figtext(0.5, -0.01, f"Cohen's Kappa: {kappa:.2f}", ha='center')
 
     # Show the plot
@@ -373,9 +391,11 @@ def plot_timeseries(df,label_map, label_color_map, y_axis_label):
     # Map your original labels to custom labels
     df['Tree Species'] = df['label'].map(label_map)
 
-    sns.set_theme()
+    sns.set_theme(style="ticks", rc={"axes.spines.right": False, "axes.spines.top": False})
     # sns.set_style("whitegrid")
-    graph = sns.lineplot(x='date_str',y='values', hue = 'Tree Species', data=df, palette=label_color_map)
+    # sns.set_style("ticks")
+    # sns.color_palette()
+    graph = sns.lineplot(x='date_str',y='values', hue = 'Tree Species', data=df, palette="tab10" )
     #sns.set_style("ticks")
     # Rotate the x-axis labels to vertical
     plt.xticks(rotation=70)  # Rotate labels to 90 degrees for vertical alignment
@@ -398,3 +418,73 @@ def plot_timeseries(df,label_map, label_color_map, y_axis_label):
 
     print (graph)
 # plt.savefig('my_lineplot.png',dpi = 1000)
+
+
+###################################################################################
+#----------------------------Spatial Temporal Metrics (STMs)----------------------------
+
+def stmRenameBands(image, addition):    
+    # Get the list of all band names
+    bandNames = image.bandNames()
+
+    # A function to rename bands, explicitly passing `addition`
+    def renameBands(band_name):
+        band_name = ee.String(band_name)
+        return ee.String(addition).cat('_').cat(band_name)
+
+    # Map over each band name
+    renamedBandNames = bandNames.map(renameBands)
+
+    # Replace the old band names in the image with the new ones
+    renamedImage = image.rename(renamedBandNames)
+
+    return renamedImage
+
+def stmSwitchBands(image):    
+    # Get the list of all band names
+    bandNames = image.bandNames()
+
+    # A function to rename bands, explicitly passing `addition`
+    def renameBands(band_name):
+        band_name = ee.String(band_name)
+
+        # Split the band name into parts
+        parts = band_name.split('_')  # Returns an ee.List
+        
+        # Get the parts from the list
+        band = parts.get(0)  # First part (before the underscore)
+        variable = parts.get(1)  # Second part (after the underscore)
+
+        return ee.String(variable).cat('_').cat(band)
+
+    # Map over each band name
+    renamedBandNames = bandNames.map(renameBands)
+
+    # Replace the old band names in the image with the new ones
+    renamedImage = image.rename(renamedBandNames)
+
+    return renamedImage
+
+def stmStackedBands(image):    
+    bandNames = image.bandNames()
+
+    # A function to rename bands, explicitly passing `addition`
+    def renameBands(band_name):
+        band_name = ee.String(band_name)
+
+        # Split the band name into parts
+        parts = band_name.split('_')  # Returns an ee.List
+        
+        # Get the parts from the list
+        band = parts.get(2)  # First part (before the underscore)
+        variable = parts.get(1)  # Second part (after the underscore)
+
+        return ee.String(variable).cat('_').cat(band)
+
+    # Map over each band name
+    renamedBandNames = bandNames.map(renameBands)
+
+    # Replace the old band names in the image with the new ones
+    renamedImage = image.rename(renamedBandNames)
+
+    return renamedImage
