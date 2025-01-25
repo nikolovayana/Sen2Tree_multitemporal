@@ -239,9 +239,8 @@ def accuracy_assesment (classified_image, testing_data, class_label, order = Non
         This is the order in which classes will appear in the confusion matrix and the returned list of fscore accuracy. Default to None.
 
     Returns:
-        ConfusionMatrix: Nested list representing the confusion matrix
-        overallaccuracy: Overall accuracy of the classification
-        fscore: Fscore for each of the classes (as a list)
+        eeConfusionMatrix: GEE object containing the conf matrix
+        test: classified test data
     """
 
     test = classified_image.sampleRegions(
@@ -257,18 +256,15 @@ def accuracy_assesment (classified_image, testing_data, class_label, order = Non
     order=order
     )
 
-    ConfusionMatrix = eeConfusionMatrix.getInfo()
-    overallaccuracy = eeConfusionMatrix.accuracy().getInfo()
-    fscore = eeConfusionMatrix.fscore().getInfo()
-    # Producers and consumers accuracies can be added to the function. If this is done, alter the return value accordingly
+        # Producers and consumers accuracies can be added to the function. If this is done, alter the return value accordingly
     # producer = eeConfusionMatrix.producersAccuracy().getInfo()
     # consumer = eeConfusionMatrix.consumersAccuracy().getInfo()
 
-    return ConfusionMatrix, overallaccuracy, fscore
+    return eeConfusionMatrix,test
 
 ###################################################################################
 #----------------------------PLOT CONFUSION MATRIX----------------------------
-def plot_confmatrix (ee_confusion_matrix, labels , title = ''):
+def plot_confmatrix (ee_confusion_matrix, labels , title = '', font_size = 15):
 
     confusion_matrix = ee_confusion_matrix.getInfo()
 
@@ -279,18 +275,26 @@ def plot_confmatrix (ee_confusion_matrix, labels , title = ''):
     cf_frame = pd.DataFrame(data, index=labels, columns=labels)
 
     # sns.heatmap(cf_frame, annot=True, cmap="rocket")
-    sns.heatmap(cf_frame, annot=True, cmap=sns.cubehelix_palette(as_cmap=True,reverse=True))
+    sns.heatmap(cf_frame, annot=True,annot_kws={"size": font_size-3}, cmap=sns.cubehelix_palette(reverse=True,n_colors = 20))
 
     # Get the current axis
     ax = plt.gca()
 
     # Set y-axis labels to horizontal
-    ax.set_yticklabels(ax.get_yticklabels(), rotation=45)
-    ax.set_xticklabels(ax.get_xticklabels(), rotation=45)
+    ax.set_yticklabels(ax.get_yticklabels(), rotation=45, fontsize=font_size-1)
+    ax.set_xticklabels(ax.get_xticklabels(), rotation=45, fontsize=font_size-1)
     # labels, title and ticks
-    ax.set_xlabel('Predicted labels')
-    ax.set_ylabel('True labels')
-    ax.set_title(title, pad=20)
+    ax.set_xlabel('Predicted labels', fontsize=font_size)
+    ax.set_ylabel('True labels', fontsize=font_size)
+    ax.set_title(title, pad=20, fontsize=font_size+1)
+
+    # Adjust font size for the color bar (legend)
+    colorbar = ax.collections[0].colorbar
+    colorbar.ax.tick_params(labelsize=font_size-1)  # Font size for color bar ticks
+    # colorbar.set_label('',fontsize=font_size-3)  # Font size for color bar label (if any)
+
+    # Set the color bar ticks to be full numbers (integers)
+    colorbar.set_ticks(np.arange(np.floor(np.min(data)), np.ceil(np.max(data)) + 1, 5))
 
     # Display accuracies
     # plt.xlabel('Predicted label\n\nOverall accuracy={:0.4f}'.format(overall_accuracy))
